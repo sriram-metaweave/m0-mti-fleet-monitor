@@ -1,0 +1,108 @@
+/* The two long-form project pages — the problem, and how it was built. Rendered by UI.storyPage (components.js).
+   Shared verbatim with the app (public/story.js). Text is the record: every number here was checked live. */
+const STORY = {
+  problem: {
+    kicker: 'The problem',
+    title: 'A ship asks one question every day. Nobody could answer it with the data.',
+    lead: 'Every morning an engineer walks the engine room of a car carrier and fills the M0 checklist — about 1,300 readings by hand. Then the Chief Engineer decides whether the engine room can be left unmanned for the next watch. That decision has been made from memory and experience, while the data that should support it sat in files nobody could query.',
+    stats: [
+      {n:'10,022,098', l:'readings already loaded', s:'m0_check_reports.check_readable'},
+      {n:'7,623', l:'walkarounds on file', s:'5 vessels, 2017–2026'},
+      {n:'1 of 60', l:'ships with rules today', s:'the rest need thresholds first'},
+      {n:'8 hours', l:'the question\'s horizon', s:'one unmanned watch'},
+    ],
+    sections: [
+      {kicker:'Who it is for', h:'Four people, four different needs',
+       body:'The **Chief Engineer** needs one answer and the readings behind it, before leaving the engine room. The **superintendent ashore** needs the same answer per ship per day, and the trend. **Management** needs to know how many ships are safe today and which are not. **MTI** owns the rules and the thresholds — they must be able to change what "normal" means without waiting for a release.',
+       cards:[
+        {h:'On board', p:'One verdict, the hard stops that block it, what to confirm before leaving, and the reading behind every line. Then sign it.'},
+        {h:'Ashore', p:'The same card per ship per morning, a task to act on, and a drafted email when something did not match.'},
+        {h:'Management', p:'How many ships are GO right now, which are not, and whether the checklist was filed at all.'},
+        {h:'MTI', p:'Rules and thresholds as data they own, edited in the app, never in code.'},
+       ]},
+      {kicker: 'Why it is hard', h: 'The checklist records what was read, not what is safe',
+       body: 'A reading of `0.32 MPa` means nothing on its own. It needs a normal to compare against, and that normal differs by ship, by machine, and by whether the engine is running or stopped. The checklist form carries a printed range for only **20 of 1,267** tags on Atlas Leader — everything else had to be derived from what the ship has actually recorded. And derived normals answer "is this unusual", not "is this unsafe". The two are not the same number.',
+       cards:[
+        {h:'Every ship is different', p:'Tags are numbered per ship. Atlas Leader has 1,267, Tsugaru 3,439. Only one channel is mapped between the first two ships, so a rule written for one does not yet transfer.'},
+        {h:'A state is not a number', p:'Half the readings are words: Auto, STBY, No Alarm, a dash. A pump reading 0 amps is on standby, not missing. Getting that wrong makes a healthy ship look broken.'},
+        {h:'Nobody had written the rules down', p:'What must be true before going unmanned existed in Chief Engineers\' heads and in class notation, not in any table.'},
+       ]},
+      {kicker: 'The data as it actually is', h: 'Nine years of checklists, and almost none of it is uniform',
+       body: 'Everything below was counted on the live database, not estimated. This is what arrives, and it is the real work.',
+       table: {
+         head: ['Ship', 'Checks on file', 'Span', 'Master versions', 'Tags', 'Tag ids reused for something else'],
+         rows: [
+           ['NYK Vega',         '1,092', '2017-08 → 2026-07 (8.8 y)', '11', '1,409', '1,289 of 1,409'],
+           ['Tsugaru',          '1,743', '2017-11 → 2026-07 (8.7 y)', '20', '3,439', '1,784 of 3,439'],
+           ['Frontier Explorer','1,142', '2018-02 → 2026-07 (8.4 y)', '10', '1,206', 'none'],
+           ['Atlas Leader',     '1,820', '2020-10 → 2026-07 (5.7 y)', '8',  '1,267', '3 of 1,267'],
+           ['Altair Leader',    '1,826', '2017-12 → 2026-07 (8.5 y)', '9',  '2,013', '1,741 of 2,013'],
+         ]},
+       cards:[
+        {h:'Two files arrive, not one', p:'An **M0Master** — the blank form, with the tag list and whatever ranges are printed on it — and an **M0Check** — one filled walkaround. A check must be read against the exact master it declares, never the nearest one, or the columns line up against the wrong parameters.'},
+        {h:'The form changes, often', p:'Between 8 and 20 master versions per ship over the same nine years. Tsugaru\'s tag count moved from 992 to 3,304; NYK Vega\'s from 1,191 to 1,321. A new version is not a cosmetic reissue.'},
+        {h:'A tag id is not a stable name', p:'On three of the five ships the same tag id points at different machinery in different versions. On Altair Leader, `9539171_1000` is a drain sight glass in one version and a sea-water pump outlet temperature in another. On Atlas Leader only 3 of 1,267 ever moved, and on Frontier Explorer none did. **You cannot assume either way.**'},
+        {h:'The ranges are mostly not on the form', p:'Across 75,928 master rows the form carries a min/max on **887**. Frontier Explorer has none at all. Everything else had to be derived from what each ship has actually recorded — which answers "is this unusual", not "is this unsafe".'},
+        {h:'There is no fleet-wide tag map yet', p:'Each ship numbers its own tags. Of the two ships with a channel map so far, Atlas Leader has 1,050 channels and Altair Leader 1,346, and **exactly one is shared between them**. Until that mapping is done, a rule written for one ship does not transfer to another.'},
+        {h:'Every ship is genuinely different', p:'Not just the numbering — the machinery. Tsugaru files 3,439 tags, Frontier Explorer 1,206. They do not carry the same equipment, so a single fleet checklist would be wrong for all of them.'},
+       ]},
+      {kicker: 'Data validation', h: 'The readings need checking before anything can judge them',
+       body: 'These are counts from the whole database, not samples.',
+       cards:[
+        {h:'Readings that cannot be real', p:'**3,891** readings across **262** tags record a pressure above 50 MPa — one reads 5,839. A fuel rail does not do that. These are unit errors, tag swaps and lost decimal points, and two days on Atlas Leader recorded `34.0` where the tag has always read `0.34`.'},
+        {h:'Blank is common and meaningful', p:'Between 6 % and 23 % of readings per ship are blank or a dash. Some are genuinely not read; some are a mixed tag saying the machine is idle. Treating the second as missing makes a healthy ship look unchecked.'},
+        {h:'Half the data is words', p:'Between 29 % and 60 % of readings per ship are states, not numbers: `Auto`, `STBY`, `No Alarm`, `NOR`, `✔`. Spelling drifts between versions, so they have to be normalised before they can be compared.'},
+        {h:'The filing itself is untidy', p:'**19** checks were filed with no readings at all, and **630** ship-days carry more than one checklist. The app picks the fullest check for a day and says so, rather than silently choosing.'},
+        {h:'Only one ship is judged today', p:'`in_range` is filled for 79 % of Atlas Leader\'s readings and 15 % of Altair Leader\'s. For the other three ships it is **0 %** — the thresholds do not exist yet, so nothing can be judged, and the app says NO RULES rather than guessing.'},
+       ]},
+      {kicker: 'What it changes', h: 'From a score to a decision',
+       body: 'A health score describes condition. It never said whether the ship may go unmanned. The system now answers the real question — **GO, GO WITH CONDITIONS or NO-GO** — from named rules over named readings, with a risk number that orders what is left to confirm, and every line traceable to a row in the database.',
+       cards:[
+        {h:'It found things', p:'A main lube oil pump falling for four days to the lowest of 592 readings, which the analyst\'s report scored SATISFACTORY and did not mention. A starting-air bottle left out of service. A lost decimal point on two days.'},
+        {h:'It says what it cannot judge', p:'An unreviewed threshold can never fail a rule; it asks for the review. A ship with no rules says NO RULES rather than guessing.'},
+       ]},
+    ],
+  },
+  built: {
+    kicker: 'How it was built',
+    title: 'Data first, judgement second, and a human at the end of every chain.',
+    lead: 'Nothing here was designed on a whiteboard. Each layer was built only after the one beneath it was proven against the real database, and every rule was drafted by hand before any attempt to generate one.',
+    stats: [
+      {n:'2', l:'skills doing the work', s:'loader and analyst'},
+      {n:'41', l:'rules drafted by hand', s:'over 62 readings'},
+      {n:'23', l:'automated tests', s:'plus 8 browser suites'},
+      {n:'0', l:'rows written by a model', s:'people and code only'},
+    ],
+    sections: [
+      {kicker:'The order it was built in', h:'Six layers, each proven before the next',
+       body:'',
+       steps:[
+        {n:1, h:'Get the data honest', p:'Load every checklist against the exact master version it declares — never the nearest one. Classify each tag into a system. Unpack the noon report. This is mechanical and must be perfectly boring.'},
+        {n:2, h:'Decide what normal is', p:'Derive a threshold per tag in five shapes: a band, a single expected state, a human-classified set of states, a running/stopped split, and a mixed tag with a standby marker. MTI reviews them by hand; 968 rows on Atlas Leader still carry needs_review.'},
+        {n:3, h:'Judge every reading', p:'One column, in_range: true, false, or null when nothing can judge it yet. Null is an honest answer and appears on screen as such.'},
+        {n:4, h:'Let an analyst read it', p:'A model reads one check cluster by cluster — ten clusters, each with one decision it answers — and writes a graded report, post-its and a story. Judgement in words, with the readings it cites attached.'},
+        {n:5, h:'Write the rules down', p:'The Chief\'s seven questions became a matrix: one row per check, one column per voyage condition, a tier, a weight, and what to do if it is not met. Drafted by hand against the real tag list, then run against a real walkaround.'},
+        {n:6, h:'Put a person at the end', p:'The verdict is advice until someone signs it. The daily task, the flag, the drafted email and the reply all live in the case file, where a person can answer.'},
+       ]},
+      {kicker:'What we got wrong first', h:'Three mistakes worth keeping on the record',
+       body:'',
+       cards:[
+        {h:'A limit invented from statistics', p:'The first draft made a lube oil pressure a hard stop at the bottom of its observed band, and produced NO-GO. That band is a normal operating range, not an alarm setpoint — and the setpoint is not in this data at all. The rule became a condition and now carries a "limit needed" mark. **Never invent a safety limit from a statistical band.**'},
+        {h:'Rules tied to the wrong key', p:'Rules were first keyed to the master version. Atlas Leader has eight versions and 1,264 of 1,267 tag ids keep the same name across all of them — version-scoping would have broken every rule on every ship at each new master.'},
+        {h:'An algorithm that ranked the measurable', p:'The first candidate ranking put 140 cylinder peak-pressure measurements at the top: clean, declared, statistically ideal, and something no Chief would ever make a UMS check. The fix was writing the Chief\'s questions down as a table, not better mathematics.'},
+       ]},
+      {kicker:'What the AI actually does', h:'A skill is half program, half engineer',
+       body:'Two skills were added on top of the database. Each one is deliberately split: the parts that must be identical every time are code, and the parts that need judgement are the model, given a role and the evidence to reason over. That split is what makes it useful to a person rather than a black box.',
+       cards:[
+        {h:'The program half', p:'Joining a check to its exact master version, classifying tags into systems, judging a reading against its threshold, computing the verdict and the risk, counting coverage. Deterministic — the same input gives the same answer, and it can be unit-tested.'},
+        {h:'The engineer half', p:'Reading one system the way a Chief would, deciding what a pattern means, writing the finding with the readings it cites, drafting the note to the office. The model is given the cluster\'s question, the readings and the thresholds — not a free hand.'},
+        {h:'Why it helps a person', p:'A Chief reading 1,300 readings a day is not a good use of a Chief. The skill reads all of them, judges what can be judged mechanically, raises what it cannot, and hands over a page instead of a spreadsheet — with the reading behind every line one click away.'},
+        {h:'What it is never allowed to do', p:'Set a limit, choose a tier, decide a hard stop, or sign a verdict. Those carry the safety consequence, so they come from a named person or a ship\'s document. Every proposed rule stays **proposed** until someone confirms it.'},
+       ]},
+      {kicker:'Where the line is drawn', h:'Code, model, person',
+       body:'The line is drawn by consequence. Anything that decides whether a ship may be left unmanned is code running named rules, or a person. The model reads, writes and proposes — it never sets a limit, a tier or a hard stop. That is why the rules are data a person edits, and why every proposed rule stays proposed until a named human confirms it.'},
+      {kicker:'How it is kept honest', h:'A specification, a golden test, and a second implementation',
+       body:'The whole answer is written as a specification with a conformance fixture: real inputs, real expected output. A second implementation was then written from that document alone, in a different language, to prove the spec was complete. It failed on the first run and found a genuine ambiguity, which was fixed in the document. Both implementations now agree on every rule, every system and every field.'},
+    ],
+  },
+};

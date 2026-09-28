@@ -1,0 +1,66 @@
+/* "Step by step" — the chain, in short factual sentences with worked examples.
+   Every number and every tag value below is real (Atlas Leader, 07-Jul-2026 walkaround, live database 24-Sep-2026). */
+const PROCESS = {
+  kicker: 'Step by step',
+  title: 'From a folder of spreadsheets to one answer.',
+  lead: 'Twelve steps, in the order an engineer would do them by hand. Each step says who does it. All numbers are from Atlas Leader.',
+  steps: [
+    {n:1, who:'received', kicker:'What arrives', h:'One zip. 1,830 files.',
+     p:'1,820 filled checklists. 8 blank master forms. 2 noon-report exports. October 2020 to July 2026.',
+     art:'files', stats:[['1,830','CSV files'],['5.7','years'],['19 MB','one archive']]},
+
+    {n:2, who:'received', kicker:'File type 1', h:'The master: the blank form.',
+     p:'One row per parameter: id, name, unit or expected state, minimum, maximum.',
+     art:'master', code:'M0 Configuration Data, 9531739_202604111901, 9531739, 1267\n"9531739_972","Fire Alarm Panel Power lamp","On","",""\n"9531739_827","F.O Service Tank Level","m³","",""',
+     note:'Minimum and maximum are blank on 1,247 of the 1,267 rows.'},
+
+    {n:3, who:'received', kicker:'File type 2', h:'The check: id, value, time.',
+     p:'Nothing else. No name, no unit, no range. The header names the master it belongs to.',
+     art:'check', code:'M0 Data, 9531739_202604111901, 9531739, 202607071859, 20260707, 1267\n"9531739_972","ON","20260707090312"\n"9531739_827","26","20260707094401"'},
+
+    {n:4, who:'program', kicker:'Step 1', h:'Join each check to its own master.',
+     p:'Match on the version the check names. One tag id, two files, one reading.',
+     art:'join', note:'Join to the wrong version and the values line up against the wrong machinery.'},
+
+    {n:5, who:'program', kicker:'Step 2', h:'The master changes without a schedule.',
+     p:'Eight versions in 5.7 years. Two a day apart, then 33 months, then three in 13 months.',
+     art:'versions', note:'On three of the five ships a tag id is later reused for different machinery.'},
+
+    {n:6, who:'ai', kicker:'Step 3', h:'Work out what normal is.',
+     p:'The form has almost no ranges. A normal is derived per tag from what the ship has recorded. Five shapes.',
+     art:'range',
+     note:'A derived range says what is unusual. It does not say what is unsafe.'},
+
+    {n:7, who:'program', kicker:'Step 4', h:'Check the readings first.',
+     p:'Some values cannot be real. Some are blank. Many are words, not numbers.',
+     art:'validate', stats:[['3,891','pressures above 50 MPa'],['19','empty checklists'],['630','days with two checklists']]},
+
+    {n:8, who:'program', kicker:'Step 5', h:'Add the noon report.',
+     p:'It says what the ship was doing: at sea, in port or in harbour, plus load, speed and fuel burned.',
+     art:'noonrule',
+     note:'The same reading is acceptable in port and not at sea. The rule needs to know which.'},
+
+    {n:9, who:'program', kicker:'Step 6', h:'The noon report also sets the fuel limit.',
+     p:'A tank level alone means nothing. Measured against the day’s burn it becomes hours of running.',
+     art:'fuelmath'},
+
+    {n:10, who:'ai', kicker:'Step 7', h:'Give every tag a system.',
+     p:'System and equipment per tag. Ten systems. The model proposes from the name, a person corrects it.',
+     art:'classify', stats:[['1,267','tags'],['10','systems'],['24','equipment groups']]},
+
+    {n:11, who:'person', kicker:'Step 8', h:'Write the checks a Chief makes.',
+     p:'Per system: which readings matter, what each must read, hard stop or confirm, and what to do if not met.',
+     art:'matrix',
+     note:'A hard stop alone forbids unmanned running. Everything else is weighted.'},
+
+    {n:12, who:'program', kicker:'Step 9', h:'The arithmetic, on one walkaround.',
+     p:'07 July 2026, at sea. 40 rules applied. 35 met. No hard stop failed.',
+     art:'math',
+     note:'Risk orders what is left to confirm. It never overrides a hard stop.'},
+  ],
+  close: {
+    kicker:'Who does what',
+    h:'Six steps are a program. Two the model proposes. Two a person decides.',
+    p:'Joining, validating, classifying and computing are the same every time, so they are code. Deriving a normal and proposing a rule need judgement, so the model drafts and a person confirms. Setting a limit, choosing a hard stop and signing the answer are not automated.',
+  },
+};

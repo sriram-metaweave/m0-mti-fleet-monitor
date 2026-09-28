@@ -1,0 +1,19 @@
+{
+  "kind": "lifeos-app",
+  "schemaVersion": 1,
+  "name": "M0 Checklist Monitoring System",
+  "metadata": {
+    "description": "Fleet → vessel → check date: health, findings, systems, checklist, analysis, noon report and track for the 5 pilot vessels, read live from nyk_mti (living_office.* case file + m0_check_reports.* + noon_report.*). Every card carries its data mapping (ⓘ); play steps the date and every graph follows. Overview opens with the UMS verdict (safe to go unmanned for the next 8 h?) computed per check from POC rules — one card per Skill-2 cluster.",
+    "imageUrl": "assets/cover.png",
+    "iconUrl": "assets/icon.svg",
+    "category": "The Living Office",
+    "tags": ["eums", "m0-check", "fleet", "vessel-health", "living-office", "checklist"],
+    "version": "2.1.0"
+  },
+  "start": "bun run server.ts",
+  "envFile": ".env.app",
+  "sandbox": {
+    "cloud": "bubblewrap",
+    "mountHome": true
+  }
+}

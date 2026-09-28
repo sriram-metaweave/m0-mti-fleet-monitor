@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "node",
+  "bunVersion": "1.x",
+  "regions": ["bom1"],
+  "functions": {
+    "server.ts": {
+      "includeFiles": "public/**",
+      "maxDuration": 60
+    }
+  },
+  "buildCommand": "bun run build"
+}

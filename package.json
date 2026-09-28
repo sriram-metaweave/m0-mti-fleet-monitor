@@ -1,0 +1,22 @@
+{
+  "name": "mti-fleet-monitor",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "M0 Checklist Monitoring System — the MTI eUMS mockup-v4 UI (component library + Apple-Health-style screens) as a Bun app over the live nyk_mti database, all 5 pilot vessels. Read-only. Every value is a real row from living_office.* / m0_check_reports.* / noon_report.*.",
+  "scripts": {
+    "start": "bun run server.ts",
+    "build": "bunx tsc --noEmit",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@google-cloud/cloud-sql-connector": "^1.11.3",
+    "google-auth-library": "^11.0.0",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>M0 Checklist Monitoring System</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="appshell">
+  <aside class="sidebar">
+    <div class="sb-top"><button class="hamb" onclick="toggleSidebar()" aria-label="Toggle menu" title="Open / close the menu">&#8801;</button><div class="sb-brand" onclick="openFleet()">M0 Checklist Monitoring</div></div>
+    <nav class="sb-nav">
+      <!-- One entry. The six sections live on the project page's own selector
+           bar, not here — see openProject() in app.js. -->
+      <div class="sb-item" id="sbProject" onclick="openProject()">M0 project<span>problem · build · skills · status</span></div>
+      <div class="sb-group" style="margin-top:18px">Ships</div>
+      <div class="sb-item sb-fleet" id="sbFleet" onclick="openFleet()">Fleet<span id="sbFleetN"></span></div>
+    </nav>
+    <div id="sbList"></div>
+  </aside>
+  <div class="mainarea">
+    <div class="top"><div style="display:flex;align-items:center;gap:14px"><div class="crumb" id="crumb"><b>Fleet</b></div></div><div style="display:flex;align-items:center;gap:16px"><span id="lookSw"></span><div class="time" id="topTime"></div></div></div>
+
+<!-- ============ FLEET ============ -->
+<div class="screen active" id="screen-fleet">
+  <div class="wrap">
+    <div id="fleetErr"></div>
+    <div class="hero">
+      <div class="num" id="heroNum">—</div>
+      <div class="lbl" id="heroLbl">Fleet health · loading…</div>
+      <div class="hero-verdict" id="fleetVerdict"></div>
+      <div id="fleetExplain"></div>
+    </div>
+    <div class="fleet-bar" id="fleetBar"><div class="a-datebar"><div class="a-pl" id="fleetPlay"></div><div class="a-tl" id="fleetTl"></div></div></div>
+    <div class="dist"><div class="dist-bar" id="distBar"></div><div class="dist-legend" id="distLegend"></div></div>
+    <div id="fleetNotice" style="margin-top:22px"></div>
+
+    <div class="section">
+      <p class="grouplbl">Vessels <span id="vesselCountLbl"></span><span class="a-infoslot" data-src="fleet"></span></p>
+      <div class="searchbar"><input id="search" type="text" placeholder="Search by name..." oninput="filterList()"></div>
+      <div class="filterchips" style="margin-bottom:10px">
+        <div class="chip active" data-f="attention" onclick="setFilter('attention')">Needs attention <span id="chipAttnN" style="margin-left:4px"></span></div>
+        <div class="chip" data-f="good" onclick="setFilter('good')">All onboarded <span id="chipOnbN" style="margin-left:4px"></span></div>
+      </div>
+      <div class="clist" id="clist"><div class="loading">Loading the fleet…</div></div>
+    </div>
+  </div>
+  <footer id="fleetFoot">Live data: living_office.* · m0_check_reports.* · noon_report.* on nyk_mti</footer>
+</div>
+
+<div class="screen" id="screen-about"><div class="wrap" id="aboutBody"></div></div>
+
+<div class="screen" id="screen-story"><div class="wrap" id="storyBody"></div></div>
+
+<!-- ============ VESSEL ============ -->
+<div class="screen" id="screen-vessel">
+  <div class="wrap" id="vesselWrap">
+    <div class="vnav" id="vnav">
+      <div class="vnav-l"><span class="vnav-back" onclick="openFleet()">‹ Fleet</span><span class="vnav-name" id="vnavName"></span></div>
+      <div class="vnav-c"><div class="vtabs a-tabs" id="vtabs">
+      <button class="active" data-t="overview" onclick="setVTab('overview')">Overview</button>
+      <button data-t="systems" onclick="setVTab('systems')">Systems</button>
+      <button data-t="findings" onclick="setVTab('findings')">Findings</button>
+      <button data-t="analysis" onclick="setVTab('analysis')">Analysis</button>
+      <button data-t="rules" onclick="setVTab('rules')">Rules <span class="n" id="rulesTabN"></span></button>
+      <button data-t="checklist" onclick="setVTab('checklist')">Checklist <span class="n" id="clTabN"></span></button>
+    </div></div>
+      <div class="vnav-r"><button class="vnav-date" id="vnavDate" onclick="document.getElementById('dateBar').scrollIntoView({behavior:'smooth', block:'center'})"><i>☷</i><span id="vnavDateTxt">—</span></button></div>
+    </div>
+    <span class="backlink vnav-plain" onclick="openFleet()">‹ Back to fleet</span>
+    <div id="vesselErr"></div>
+    <div class="vhead">
+      <select id="vswitch" class="vswitch" onchange="openVessel(this.value)"></select>
+      <div class="num" id="healthNum">—</div>
+      <div class="datelbl" id="dateLbl">loading…</div>
+      <div class="hero-verdict" id="heroVerdict"></div>
+      <div id="heroExplain"></div>
+      <button class="pdfbtn" onclick="window.print()">Download report (PDF)</button>
+    </div>
+    <div id="dateBar" class="vhead-date"></div>
+    <!-- ---- tab: Overview ---- -->
+    <div class="vtabpanel active" id="vtab-overview">
+      <div id="umsCard"></div>
+      <div id="noonNow"></div>
+      <div id="healthWin" style="max-width:320px;margin:4px 0 6px"></div>
+      <div class="chartwrap">
+        <svg id="chart" viewBox="0 0 632 140" preserveAspectRatio="none"></svg>
+        <div class="axislbls"><span id="hAx0"></span><span id="hAx1"></span></div>
+      </div>
+      <p class="scrubhint">Drag the chart to any analysed check <span class="a-infoslot" data-src="healthTrend"></span></p>
+      <div class="nudge">
+        <button id="prevPt" onclick="stepPoint(-1)">‹ Earlier</button>
+        <button onclick="selectLatest()">Latest</button>
+        <button id="nextPt" onclick="stepPoint(1)">Later ›</button>
+      </div>
+      <hr class="divider">
+      <div id="findInsight"></div>
+      <div id="content"></div>
+    </div>
+
+    <!-- ---- tab: Systems ---- -->
+    <div class="vtabpanel" id="vtab-systems">
+      <p class="foot-note" id="sysDateNote" style="padding:0 4px;margin:4px 0 10px"></p>
+      <div class="syspanes">
+        <div class="pane pane-sys">
+          <p class="panelbl">System <span id="sysCount"></span><span class="a-infoslot" data-src="systems"></span></p>
+          <div class="plist" id="sysList"></div>
+        </div>
+        <div class="pane pane-equip">
+          <p class="panelbl" id="equipPaneLbl">Equipment</p>
+          <div class="plist" id="equipList"></div>
+        </div>
+        <div class="pane pane-tags">
+          <p class="panelbl" id="tagPaneLbl">Tags</p>
+          <div class="tagfilterbar" id="tagFilterBar" style="display:none">
+            <input type="text" id="tagSearch" placeholder="Search parameter or tag id…" oninput="renderTagPane()">
+            <div class="seg" id="tagTypeSeg">
+              <button class="on" data-v="all" onclick="setTagType('all')">All</button>
+              <button data-v="numeric" onclick="setTagType('numeric')">Numeric</button>
+              <button data-v="state" onclick="setTagType('state')">State</button>
+            </div>
+            <div class="chip small" id="citedFirstChip" onclick="toggleTagOpt('citedFirst')">Cited first</div>
+            <div class="chip small" id="oorOnlyChip" onclick="toggleTagOpt('oorOnly')">Out of range</div>
+          </div>
+          <div class="clist" id="tagList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- tab: Findings ---- -->
+    <div class="vtabpanel" id="vtab-findings">
+      <p class="foot-note" id="findDateNote" style="padding:0 4px;margin:4px 0 8px"></p>
+      <p class="grouplbl">Findings <span id="findScopeLbl">one per post-it note</span><span class="a-infoslot" data-src="findings"></span></p>
+      <div class="filterchips" id="findFilterChips" style="margin-bottom:6px">
+        <div class="chip active" data-sev="high" onclick="toggleFindSev('high')">High <span id="findCountHigh" style="margin-left:3px"></span></div>
+        <div class="chip active" data-sev="medium" onclick="toggleFindSev('medium')">Medium <span id="findCountMedium" style="margin-left:3px"></span></div>
+        <div class="chip" data-sev="low" onclick="toggleFindSev('low')">Low <span id="findCountLow" style="margin-left:3px"></span></div>
+      </div>
+      <div id="findGroups"><div class="loading">Loading findings…</div></div>
+    </div>
+
+    <!-- ---- tab: Analysis ---- -->
+    <div class="vtabpanel" id="vtab-analysis">
+      <div id="anBody"></div>
+    </div>
+
+    <!-- ---- tab: Checklist ---- -->
+    <div class="vtabpanel" id="vtab-rules"><div id="rulesBody"></div></div>
+
+    <div class="vtabpanel" id="vtab-checklist">
+      <div class="datelbl" id="clDateLbl" style="margin-bottom:14px"></div>
+      <div id="oorLimitCard"></div>
+      <p class="grouplbl">Out of range that day <span id="oorCountLbl"></span><span class="a-infoslot" data-src="oor"></span></p>
+      <div class="clist" id="oorList"></div>
+
+      <p class="grouplbl" style="margin-top:28px">All readings <span>in walkaround order · every row opens the tag</span><span class="a-infoslot" data-src="checklist"></span></p>
+      <div class="a-clfilter" id="clFilterBar">
+        <div class="seg" id="clTypeSeg">
+          <button class="on" data-v="all" onclick="setClType('all')">All</button>
+          <button data-v="numeric" onclick="setClType('numeric')">Numeric</button>
+          <button data-v="state" onclick="setClType('state')">State</button>
+        </div>
+        <div class="chip small" id="clOorChip" onclick="toggleClOpt('oor')">Out of range</div>
+        <div class="chip small" id="clCitedChip" onclick="toggleClOpt('cited')">Cited</div>
+        <div class="chip small" id="clReadChip" onclick="toggleClOpt('read')">Read only</div>
+        <div class="chip small" id="clUmsChip" onclick="toggleClOpt('ums')" title="the tags named in the UMS criteria">UMS-critical only</div>
+        <select id="clSystem" onchange="setClSystem(this.value)"><option value="">All systems</option></select>
+      </div>
+      <div class="searchbar"><input id="clSearch" type="text" placeholder="Filter by tag name, id or system — try “cylinder”, “D/G”, “fire alarm”…" oninput="searchChecklist()"></div>
+      <div class="clist" id="clResults"></div>
+      <div class="clpager" id="clPager"></div>
+    </div>
+  </div>
+  <footer id="vesselFoot"></footer>
+</div>
+
+  </div>
+</div>
+
+<div class="sv-backdrop" id="anBackdrop" onclick="closeAnalysis()"></div>
+<div class="slideover" id="anPanel" style="width:min(720px,100vw)">
+  <button class="sv-close" onclick="closeAnalysis()">✕</button>
+  <div id="anPanelBody"></div>
+</div>
+
+<!-- ============ TAG DETAIL — slide-over, not a screen ============ -->
+<div class="sv-backdrop" id="tdBackdrop" onclick="closeTagDetail()"></div>
+<div class="slideover" id="tdPanel">
+  <button class="sv-close" onclick="closeTagDetail()">✕</button>
+  <div id="tdHead"></div>
+  <div id="tdStats"></div>
+  <div id="tdChartCard"></div>
+  <div id="tdCylChart"></div>
+  <p class="grouplbl" style="margin-top:28px">Findings citing this parameter <span id="tdFindCount"></span><span class="a-infoslot" data-src="evidence"></span></p>
+  <div id="tdFindings"></div>
+</div>
+
+<script src="components.js"></script>
+<script src="coast.js"></script>
+<script src="comments.js"></script>
+<script src="weather.js"></script>
+<script src="ums.js"></script>
+<script src="ums-criteria.js"></script>
+<script src="about.js"></script>
+<script src="story.js"></script>
+<script src="process.js"></script>
+<script src="skills.js"></script>
+<script src="example.js"></script>
+<script src="now.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

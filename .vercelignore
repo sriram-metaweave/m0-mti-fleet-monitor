@@ -1,0 +1,17 @@
+# Documentation, not runtime.
+*.md
+
+# Tests. They run locally and in CI, never in the function.
+tests/
+*.test.ts
+
+# Secrets. .gitignore does not apply to a `vercel` CLI deploy from this
+# directory — the working tree is uploaded — so without this the service
+# account key and the Cloud SQL password would ship inside the function.
+# Vercel injects real environment variables at runtime.
+.env
+.env.*
+!.env.example
+
+# Local run history, never needed in the function.
+logs/
