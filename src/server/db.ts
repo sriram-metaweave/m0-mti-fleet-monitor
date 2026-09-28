@@ -47,7 +47,8 @@ function settings(): Settings {
     poolId: required("GCP_WORKLOAD_IDENTITY_POOL_ID"),
     providerId: required("GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID"),
     relayUrl: required("PG_RELAY_URL").replace(/\/+$/, ""),
-    database: required("PGDATABASE"),
+    // DB_NAME is the name the GCP access handover uses; PGDATABASE is the reference's
+    database: process.env.PGDATABASE || required("DB_NAME"),
   };
 }
 

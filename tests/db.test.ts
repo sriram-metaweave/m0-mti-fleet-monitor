@@ -91,4 +91,16 @@ describe("describe()", () => {
     delete process.env.PG_RELAY_URL;
     try { expect(describeDb()).toBe(""); } finally { if (saved) process.env.PG_RELAY_URL = saved; }
   });
+  test("the database comes from DB_NAME when PGDATABASE is unset (the GCP handover's name)", () => {
+    const keys = ["PG_RELAY_URL", "PGDATABASE", "DB_NAME", "GCP_PROJECT_NUMBER", "GCP_SERVICE_ACCOUNT_EMAIL",
+      "GCP_WORKLOAD_IDENTITY_POOL_ID", "GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID"] as const;
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    Object.assign(process.env, {
+      PG_RELAY_URL: "https://relay.example", DB_NAME: "nyk_mti", GCP_PROJECT_NUMBER: "1",
+      GCP_SERVICE_ACCOUNT_EMAIL: "sa@p.iam.gserviceaccount.com", GCP_WORKLOAD_IDENTITY_POOL_ID: "v", GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID: "v",
+    });
+    delete process.env.PGDATABASE;
+    try { expect(describeDb()).toContain("→ nyk_mti as sa@p.iam.gserviceaccount.com"); }
+    finally { for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } }
+  });
 });
