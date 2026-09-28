@@ -1,184 +1,211 @@
 /**
- * The database connection, in one module. Single tenant: DB_NAME from the
- * environment, one pool for the process.
+ * Keyless Postgres access from Vercel to LIFEOSAI's private Cloud SQL instance —
+ * after vercel-cloudsql-reference/src/db.ts, structure and settings kept:
  *
- * Credentials come only from process.env (this app's own .env.app, or
- * whatever the platform injects) — never read from another app's or the
- * workspace's own .env file. The actual connection and auth are entirely
- * the Cloud SQL Connector's job (mTLS + IAM token exchange over ADC); this
- * module only tells it which instance, which IAM principal, which database.
+ * Path: Vercel function -> pg-relay (Cloud Run, WebSocket) -> Cloud SQL Auth Proxy -> Cloud SQL.
  *
- * Three ways in, auto-detected in this order:
- *   1. IAM DB auth (DB_IAM_USER set, no password anywhere) — Cloud SQL
- *      Connector does mTLS + an IAM token in place of a password. Same
- *      instance/user as .claude/skills/mti-t1-data-pipeline/scripts/db.py's
- *      proven Python path, ADC resolved independently in this process.
- *   2. Password-based Cloud SQL Connector (CLOUD_SQL_INSTANCE_CONNECTION_NAME
- *      + DB_USER + DB_PASSWORD, no DB_IAM_USER) — kept for any environment
- *      still on the older credential shape (see lifeos-apps/anomaly-detect).
- *   3. A plain DSN (SS_LIBRARY_DSN / DATABASE_URL) — local dev, pointing at
- *      `cloud-sql-proxy --port 5433`.
+ * Every hop authenticates with a short-lived token and nothing is stored:
+ *   1. Vercel issues this deployment an OIDC token (team, project and environment bound).
+ *   2. GCP Workload Identity Federation exchanges it for this app's service account.
+ *   3. An ID token for the relay URL passes Cloud Run IAM (roles/run.invoker).
+ *   4. An access token is the Postgres password (Cloud SQL IAM authentication).
+ *   5. Postgres grants decide which database and tables the account may touch.
+ *
+ * Two things are this app's own, on top of the reference:
+ *   - `sql` — a tagged template over the invocation's pool, so the queries under
+ *     src/server keep their text (fragments, arrays, casts compile to $1…$n).
+ *   - `withDatabase()` is entered once per request by the router; the queries
+ *     that request runs find its pool through an AsyncLocalStorage scope.
  */
-import postgres from "postgres";
-import { GoogleAuth } from "google-auth-library";
-import { readFileSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import { getVercelOidcToken } from "@vercel/oidc";
+import { ExternalAccountClient, type BaseExternalAccountClient } from "google-auth-library";
+import WebSocket from "ws";
 
-// Mirrors db.py's _read_env_raw: the workspace .env is the single source of
-// truth for DB config (CLAUDE.md, 28-Aug-2026). A missing file is a
-// supported state, not an error.
-function readEnvRaw(path: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  try {
-    for (const raw of readFileSync(path, "utf-8").split(/\r?\n/)) {
-      const t = raw.trimStart();
-      if (!t || t.startsWith("#")) continue;
-      const eq = raw.indexOf("=");
-      if (eq <= 0) continue;
-      const key = raw.slice(0, eq).trim();
-      let val = raw.slice(eq + 1);
-      if (val.length >= 2 && val[0] === val[val.length - 1] && (val[0] === "'" || val[0] === '"')) val = val.slice(1, -1);
-      out[key] = val;
+interface Settings {
+  projectNumber: string;
+  serviceAccountEmail: string;
+  poolId: string;
+  providerId: string;
+  relayUrl: string;
+  database: string;
+}
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is not set`);
+  }
+  return value;
+}
+
+function settings(): Settings {
+  return {
+    projectNumber: required("GCP_PROJECT_NUMBER"),
+    serviceAccountEmail: required("GCP_SERVICE_ACCOUNT_EMAIL"),
+    poolId: required("GCP_WORKLOAD_IDENTITY_POOL_ID"),
+    providerId: required("GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID"),
+    relayUrl: required("PG_RELAY_URL").replace(/\/+$/, ""),
+    database: required("PGDATABASE"),
+  };
+}
+
+/** The settings the startup banner prints; empty when the environment names no relay. */
+export function describe(): string {
+  if (!process.env.PG_RELAY_URL) return "";
+  const s = settings();
+  return `db: pg-relay ${s.relayUrl} → ${s.database} as ${s.serviceAccountEmail} (keyless)`;
+}
+
+/**
+ * Vercel hands a function its OIDC token in the x-vercel-oidc-token request
+ * header as well as through @vercel/oidc. This app runs on Vercel's Bun
+ * runtime, so the router notes the header of the request being served and the
+ * federation falls back to it if the library cannot find the token.
+ */
+let requestOidcToken: string | undefined;
+export function noteOidcToken(req: Request): void {
+  const t = req.headers.get("x-vercel-oidc-token");
+  if (t) requestOidcToken = t;
+}
+async function subjectToken(): Promise<string> {
+  try { return await getVercelOidcToken(); } catch (e) { if (requestOidcToken) return requestOidcToken; throw e; }
+}
+
+let cachedAuth: BaseExternalAccountClient | undefined;
+
+function authClient(s: Settings): BaseExternalAccountClient {
+  if (cachedAuth) {
+    return cachedAuth;
+  }
+  const client = ExternalAccountClient.fromJSON({
+    type: "external_account",
+    audience: `//iam.googleapis.com/projects/${s.projectNumber}/locations/global/workloadIdentityPools/${s.poolId}/providers/${s.providerId}`,
+    subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+    token_url: "https://sts.googleapis.com/v1/token",
+    service_account_impersonation_url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${s.serviceAccountEmail}:generateAccessToken`,
+    // Called with no arguments on purpose: the token must keep Vercel's default
+    // audience (https://vercel.com/<team>), which is what the WIF provider allows.
+    subject_token_supplier: { getSubjectToken: () => subjectToken() },
+  });
+  if (!client) {
+    throw new Error("could not build the Workload Identity Federation client");
+  }
+  cachedAuth = client;
+  return client;
+}
+
+async function relayIdToken(s: Settings): Promise<string> {
+  const response = await authClient(s).request<{ token: string }>({
+    url: `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${s.serviceAccountEmail}:generateIdToken`,
+    method: "POST",
+    data: { audience: s.relayUrl, includeEmail: true },
+  });
+  return response.data.token;
+}
+
+async function accessToken(s: Settings): Promise<string> {
+  const { token } = await authClient(s).getAccessToken();
+  if (!token) {
+    throw new Error("could not obtain a GCP access token for the service account");
+  }
+  return token;
+}
+
+/**
+ * A connection pool to this app's database, sized for a single function invocation.
+ * Call `end()` when the handler finishes.
+ */
+export async function createPool(): Promise<Pool> {
+  const s = settings();
+  const [idToken, password] = await Promise.all([relayIdToken(s), accessToken(s)]);
+
+  class AuthenticatedWebSocket extends WebSocket {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols, { headers: { Authorization: `Bearer ${idToken}` } });
     }
-  } catch { /* no file — fall through to code defaults */ }
-  return out;
-}
-const PROJECT_ENV = readEnvRaw(process.env.PROJECT_ENV_PATH || "/Users/Mti1/LIFEOSAI/.env");
-const env = (name: string) => process.env[name] || PROJECT_ENV[name] || "";
+  }
 
-// Same four defaults as db.py's _DB_DEFAULTS — configuration, not credentials,
-// so an unset .env still resolves to the one real instance this workspace uses.
-const DEFAULTS = {
-  CLOUD_SQL_INSTANCE_CONNECTION_NAME: "lifeosai-481608:asia-south1:lifeosai-db",
-  POSTGRES_DB: "nyk_mti",
-  DB_IAM_USER: "sa-user-mti1@lifeosai-481608.iam",
-  DB_IP_TYPE: "PRIVATE",
-};
+  neonConfig.webSocketConstructor = AuthenticatedWebSocket;
+  neonConfig.useSecureWebSocket = true;
+  neonConfig.forceDisablePgSSL = true; // TLS terminates at Cloud Run; the hop to the proxy is loopback
+  neonConfig.pipelineConnect = false; // IAM login needs the plain authentication handshake
+  neonConfig.wsProxy = (host, port) =>
+    `${s.relayUrl.replace(/^https:\/\//, "")}/v1?address=${host}:${port}`;
 
-export const INSTANCE = env("CLOUD_SQL_INSTANCE_CONNECTION_NAME") || DEFAULTS.CLOUD_SQL_INSTANCE_CONNECTION_NAME;
-export const DB_NAME = env("DB_NAME") || env("POSTGRES_DB") || DEFAULTS.POSTGRES_DB;
-const HAS_PASSWORD_CREDS = !!(env("DB_USER") && env("DB_PASSWORD"));
-const IAM_USER = env("DB_IAM_USER") || (HAS_PASSWORD_CREDS ? "" : DEFAULTS.DB_IAM_USER);
-const DIRECT_DSN = env("SS_LIBRARY_DSN") || env("DATABASE_URL");
-
-export const AUTH_MODE: "iam" | "password" | "dsn" = DIRECT_DSN
-  ? "dsn"
-  : HAS_PASSWORD_CREDS
-    ? "password"
-    : "iam";
-export const USE_CONNECTOR = AUTH_MODE !== "dsn";
-
-// Every query here is schema-qualified (living_office.*, m0_check_reports.*, noon_report.*).
-const SEARCH_PATH = "public";
-
-export function dsn(): string {
-  if (DIRECT_DSN) return DIRECT_DSN;
-  const host = env("DB_HOST") || "127.0.0.1";
-  const dbPort = env("DB_PORT") || "5433";
-  return `postgres://${encodeURIComponent(env("DB_USER"))}:${encodeURIComponent(env("DB_PASSWORD"))}@${host}:${dbPort}/${DB_NAME}`;
-}
-
-type DriverOpts = { stream: () => import("node:net").Socket };
-let driverOpts: Promise<DriverOpts> | null = null;
-
-// google-auth-library's own metadata-probe retry/backoff has no bound this
-// module controls, and a hung probe would hang every request sharing the
-// cached promise below with it. A request should fail predictably fast
-// ("database unreachable") rather than wait on someone else's retry policy.
-const CONNECT_TIMEOUT_MS = 10_000;
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  return new Pool({
+    host: "127.0.0.1", // the Auth Proxy beside the relay
+    port: 5432,
+    user: s.serviceAccountEmail.replace(/\.gserviceaccount\.com$/, ""),
+    password,
+    database: s.database,
+    max: 4, // a screen's handlers run a few reads in parallel
   });
 }
 
-/** IAM auth: Application Default Credentials from this container's own identity
- *  — no key file, no password. Matches db.py's `google.auth.default()`. */
-function cloudSqlOptionsIam(): Promise<DriverOpts> {
-  if (!driverOpts) {
-    const p: Promise<DriverOpts> = withTimeout((async () => {
-      const { Connector, IpAddressTypes, AuthTypes } = await import("@google-cloud/cloud-sql-connector");
-      const ipType = (env("DB_IP_TYPE") || DEFAULTS.DB_IP_TYPE).toUpperCase() === "PRIVATE"
-        ? IpAddressTypes.PRIVATE : IpAddressTypes.PUBLIC;
-      return new Connector().getOptions({
-        instanceConnectionName: INSTANCE,
-        ipType,
-        authType: AuthTypes.IAM,
-      });
-    })(), CONNECT_TIMEOUT_MS, "Cloud SQL Connector (IAM)");
-    p.catch(() => { if (driverOpts === p) driverOpts = null; });
-    driverOpts = p;
-  }
-  return driverOpts;
+/** The pool of the request being served — created on the first query, not before. */
+type Lazy = { pool?: Promise<Pool> };
+const scope = new AsyncLocalStorage<Lazy>();
+
+/**
+ * The one seam: a process may supply its own pool factory instead of the relay.
+ * Vercel never does — it is for tests and for running against a local copy of
+ * the database (scripts/local.ts), where no Vercel OIDC token exists.
+ */
+let poolFactory: (() => Promise<Pool>) | null = null;
+export function usePoolFactory(f: () => Promise<Pool>): void { poolFactory = f; }
+
+function poolNow(): Promise<Pool> {
+  const lazy = scope.getStore();
+  if (!lazy) throw new Error("a query ran outside withDatabase()");
+  return (lazy.pool ??= (poolFactory ?? createPool)());
 }
 
-/** Password auth via the connector — the anomaly-detect shape, kept for compatibility. */
-function cloudSqlOptionsPassword(): Promise<DriverOpts> {
-  if (!driverOpts) {
-    const p: Promise<DriverOpts> = withTimeout((async () => {
-      const raw = env("GOOGLE_SERVICE_ACCOUNT_BASE64");
-      const { Connector, IpAddressTypes, AuthTypes } = await import("@google-cloud/cloud-sql-connector");
-      const auth = raw
-        ? new GoogleAuth({
-            credentials: JSON.parse(Buffer.from(raw, "base64").toString("utf-8")),
-            scopes: ["https://www.googleapis.com/auth/sqlservice.admin"],
-          })
-        : undefined;
-      const connectorAuth = auth as unknown as NonNullable<
-        ConstructorParameters<typeof Connector>[0]
-      >["auth"];
-      return new Connector(auth ? { auth: connectorAuth } : undefined).getOptions({
-        instanceConnectionName: INSTANCE,
-        ipType: IpAddressTypes.PUBLIC,
-        authType: AuthTypes.PASSWORD,
-      });
-    })(), CONNECT_TIMEOUT_MS, "Cloud SQL Connector (password)");
-    p.catch(() => { if (driverOpts === p) driverOpts = null; });
-    driverOpts = p;
+/**
+ * Run one unit of work against the database and always release the pool — the
+ * reference's one pool per invocation, except that a request which runs no
+ * query (a static file, /api/health) never opens one and mints no token.
+ */
+export async function withDatabase<T>(work: () => Promise<T>): Promise<T> {
+  const lazy: Lazy = {};
+  try {
+    return await scope.run(lazy, work);
+  } finally {
+    if (lazy.pool) await (await lazy.pool).end();
   }
-  return driverOpts;
 }
 
-function makeSql() {
-  if (AUTH_MODE === "dsn") {
-    return postgres(dsn(), { max: 4, idle_timeout: 30, connection: { search_path: SEARCH_PATH } });
+/* ── the tagged template the queries are written in ──────────────── */
+
+/** A piece of SQL with its values; embeds in another `sql` template, or runs when awaited. */
+export class Sql implements PromiseLike<Row[]> {
+  constructor(readonly strings: ReadonlyArray<string>, readonly values: unknown[]) {}
+  /** The query text with $1…$n, and the parameters, fragments folded in. */
+  compile(params: unknown[] = []): { text: string; params: unknown[] } {
+    let text = "";
+    this.strings.forEach((str, i) => {
+      text += str;
+      if (i >= this.values.length) return;
+      const v = this.values[i];
+      if (v instanceof Sql) text += v.compile(params).text;
+      else { params.push(v); text += "$" + params.length; }
+    });
+    return { text, params };
   }
-  if (AUTH_MODE === "password") {
-    return postgres({
-      user: env("DB_USER"),
-      password: env("DB_PASSWORD"),
-      database: DB_NAME,
-      ssl: false, // the connector already did mTLS; negotiating TLS again inside the tunnel would fail
-      max: 3,
-      idle_timeout: 60,
-      connect_timeout: 12,
-      connection: { search_path: SEARCH_PATH },
-      socket: async () => (await cloudSqlOptionsPassword()).stream(),
-    } as unknown as string);
+  then<A = Row[], B = never>(onOk?: ((rows: Row[]) => A | PromiseLike<A>) | null, onErr?: ((e: unknown) => B | PromiseLike<B>) | null): Promise<A | B> {
+    return this.run().then(onOk, onErr);
   }
-  // IAM: no password field at all — the connector's mTLS stream carries the token.
-  return postgres({
-    user: IAM_USER,
-    database: DB_NAME,
-    ssl: false,
-    max: 3,
-    idle_timeout: 60,
-    connect_timeout: 12,
-    connection: { search_path: SEARCH_PATH },
-    socket: async () => (await cloudSqlOptionsIam()).stream(),
-  } as unknown as string);
+  private async run(): Promise<Row[]> {
+    const pool = await poolNow();
+    const { text, params } = this.compile();
+    const { rows } = await pool.query(text, params);
+    return rows as Row[];
+  }
 }
+export type Row = Record<string, unknown>;
 
-// Built on first use, not at import, so a health check can answer before any
-// query is attempted, and a query failure never crashes the process.
-let pool: ReturnType<typeof postgres> | null = null;
-function poolNow() { if (!pool) pool = makeSql(); return pool; }
-
-const sql: ReturnType<typeof postgres> = new Proxy(function () {} as never, {
-  apply: (_t, _this, args: unknown[]) =>
-    (poolNow() as unknown as (...a: unknown[]) => unknown)(...args),
-  get: (_t, prop) =>
-    (poolNow() as unknown as Record<string | symbol, unknown>)[prop],
-}) as unknown as ReturnType<typeof postgres>;
-
-export { sql, IAM_USER };
+/** `sql\`select … where id = ${id}\`` — the same shape the queries have always had. */
+export function sql(strings: TemplateStringsArray, ...values: unknown[]): Sql {
+  return new Sql(strings, values);
+}

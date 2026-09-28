@@ -10,7 +10,8 @@ read-only. Moved from the mockup on 23-Sep-2026; the mockup folder is the refere
 ```
 lifeos-app.json        manifest ("M0 Checklist Monitoring System", start: bun run server.ts, env: .env.app)
 server.ts              entry — router in src/server/app.ts, port binding in src/server/startup.ts
-src/server/db.ts       Cloud SQL Connector, IAM auth (unchanged infrastructure)
+src/server/db.ts       keyless Postgres via pg-relay + @neondatabase/serverless (Vercel OIDC → GCP WIF), one pool per request
+scripts/local.ts       run against a local/proxied Postgres (with scripts/wsproxy.ts) — no OIDC needed
 src/server/queries.ts  the read-only query layer, one function per route, written from DATA-MAPPING.md
 src/server/app.ts      the router: /api/... + the inlined index
 public/components.js   the reusable component library — identical to the mockup's
@@ -53,4 +54,5 @@ default: grey base, white floating cards, no borders. Glass adds sticky blurred 
 ## Run / test
 
 The host starts it (`bun run server.ts`, PORT from the environment). Tests: `bun test` (router, no DB);
-`LIVE_DB=1 bun --env-file=.env.app test` for the live read-only checks. Typecheck: `bun run typecheck`.
+`bun run scripts/wsproxy.ts &` then `LIVE_DB=1 PGPORT=5433 PGUSER=… PGPASSWORD=… bun test` for the live
+read-only checks (through `cloud-sql-proxy --port 5433`). Local server: `bun run scripts/local.ts` with the same PG* vars. Typecheck: `bun run typecheck`.

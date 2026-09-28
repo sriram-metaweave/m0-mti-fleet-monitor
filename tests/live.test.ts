@@ -1,13 +1,17 @@
 /**
  * Live, read-only checks against nyk_mti through the real routes. Skipped
- * unless LIVE_DB=1 (the CI/host may not reach Cloud SQL). Every assertion is
+ * unless LIVE_DB=1 (the CI/host may not reach Cloud SQL); then it reads through
+ * scripts/wsproxy.ts to the PG* database (see scripts/local-db.ts). Every assertion is
  * about shape and grain, not about a number that will change tomorrow.
  */
 import { describe, expect, test } from "bun:test";
 import { serve } from "../src/server/app";
+import { withDatabase } from "../src/server/db";
+import { useLocalDatabase } from "../scripts/local-db";
 
 const live = process.env.LIVE_DB === "1";
-const get = async (p: string) => { const r = await serve(new Request("http://127.0.0.1" + p)); return { status: r.status, body: await r.json() }; };
+if (live) useLocalDatabase(); // needs scripts/wsproxy.ts running and PG* pointing at the proxy
+const get = (p: string) => withDatabase(async () => { const r = await serve(new Request("http://127.0.0.1" + p)); return { status: r.status, body: await r.json() }; });
 
 describe.skipIf(!live)("live nyk_mti", () => {
   test("fleet: 5 vessels, each with analysed checks keyed by check_file_id", async () => {

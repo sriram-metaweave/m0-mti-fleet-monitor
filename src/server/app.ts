@@ -12,6 +12,7 @@ import { j } from "./http";
 import * as Q from "./queries";
 import { serveStaticFile, serveIndex } from "./static";
 import { withSecurityHeaders } from "./security";
+import { noteOidcToken, withDatabase } from "./db";
 
 export const handler = {
   port,
@@ -19,7 +20,9 @@ export const handler = {
   maxRequestBodySize: 1 * 1024 * 1024,
   async fetch(req: Request): Promise<Response> {
     try {
-      return withSecurityHeaders(await serve(req));
+      noteOidcToken(req); // Vercel's per-request identity, for the keyless database path
+      // one pool per request, opened only if a query actually runs (see db.ts)
+      return withSecurityHeaders(await withDatabase(() => serve(req)));
     } catch (e) {
       console.error("[fetch]", (e as Error).message);
       return j({ error: "database unreachable", detail: (e as Error).message }, 503);

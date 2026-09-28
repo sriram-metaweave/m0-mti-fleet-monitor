@@ -11,12 +11,14 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@google-cloud/cloud-sql-connector": "^1.11.3",
+    "@neondatabase/serverless": "^1.1.0",
+    "@vercel/oidc": "^3.8.9",
     "google-auth-library": "^11.0.0",
-    "postgres": "^3.4.9"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.0"
   }
 }

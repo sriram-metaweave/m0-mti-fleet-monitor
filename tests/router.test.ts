@@ -3,7 +3,9 @@
  * input guards. Run with `bun test` (PORT is set in bunfig preload).
  */
 import { describe, expect, test } from "bun:test";
+import type { Pool } from "@neondatabase/serverless";
 import { serve, pathParts } from "../src/server/app";
+import { usePoolFactory, withDatabase } from "../src/server/db";
 
 const req = (p: string) => new Request("http://127.0.0.1" + p);
 
@@ -38,7 +40,9 @@ describe("router", () => {
     expect((await serve(req("/artifact-preview/tok/api/health"))).status).toBe(200);
     expect((await serve(req("/api/vessel/../x"))).status).toBe(404); // the URL parser folds ".." before the router sees it
     expect((await serve(req("/api/vessel/bad slug"))).status).toBe(400);
-    expect((await serve(req("/api/vessel/atlas-leader/noon?since=nope"))).status).toBe(400);
+    // the since guard runs after the vessel lookup — a fake pool answers that one row
+    usePoolFactory(async () => ({ query: async () => ({ rows: [{ id: 1, slug: "atlas-leader", name: "Atlas Leader", imo: "9531739", type: null }] }), end: async () => {} }) as unknown as Pool);
+    expect((await withDatabase(() => serve(req("/api/vessel/atlas-leader/noon?since=nope")))).status).toBe(400);
     expect((await serve(req("/api/nothing"))).status).toBe(404);
   });
   test("only GET", async () => {
